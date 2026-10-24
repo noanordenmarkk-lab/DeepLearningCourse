@@ -10,20 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.stats as stats
 
-data = np.loadtxt(
-    "https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data",
-    delimiter=",",
-    dtype=str
-)
+import sys
 
-mask = ~(data == '?').any(axis=1)
-
-data = data[mask]
-
-labels = data[:,-1].astype(float)
-data   = data[:,:-1].astype(float)
-
-dataf = pd.DataFrame(data)
-
-print(dataf.shape)
-print( dataf.head() )
+print(sys.executable)
+print(sys.version)

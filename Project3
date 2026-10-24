@@ -1,0 +1,133 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader,TensorDataset
+from sklearn.model_selection import train_test_split
+
+import numpy as np
+import pandas as pd
+
+import matplotlib.pyplot as plt
+import scipy.stats as stats
+
+url = "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv"
+data = pd.read_csv(url,sep=';')
+data = data[data['total sulfur dioxide']<200]
+
+randomindices = data.sample(n=10).index
+actual_values = data.loc[randomindices, 'residual sugar'].to_numpy()
+
+data.loc[randomindices, 'residual sugar'] = np.nan
+
+TEST  = data['residual sugar'].loc[randomindices]
+TRAIN = data['residual sugar'].drop(index=randomindices)
+
+test_array  = np.column_stack((TEST.index,TEST.to_numpy()))
+train_array = np.column_stack((TRAIN.index,TRAIN.to_numpy()))
+
+test_data = test_array[:,0]
+
+train_data = train_array[:,0]
+train_labels = train_array[:,1]
+
+
+#convert to tensor
+traindataT = torch.tensor(train_data,dtype=torch.float32)
+testdataT  = torch.tensor(test_data,dtype=torch.float32)
+labelsT = torch.tensor(train_labels,dtype=torch.float32)
+labelsT = labelsT[:, None]
+traindataT = traindataT[:, None]
+testdataT  = testdataT[:, None]
+
+#convert into Pytorch datasets
+train_data = TensorDataset(traindataT,labelsT)
+test_data  = TensorDataset(testdataT)
+
+#translate into dataloader objects
+batchsize    = 16
+train_loader = DataLoader(train_data,batch_size=batchsize,shuffle=True,drop_last=True)
+test_loader  = DataLoader(test_data,batch_size=test_data.tensors[0].shape[0])
+
+def createTheModel():
+
+    ANNWine = nn.Sequential(
+        nn.Linear(1,16),
+        nn.ReLU(),
+        nn.Linear(16,4),
+        nn.ReLU(),
+        nn.Linear(4,1),
+    )
+
+    learning_rate = 0.001
+    loss_fun = nn.MSELoss()
+    optimizer = torch.optim.Adam(ANNWine.parameters(),lr=learning_rate)
+
+    return ANNWine,loss_fun,optimizer
+
+def trainTheModel():
+
+    numepochs = 100
+
+    ANNWine,loss_fun,optimizer = createTheModel()
+
+    testOutput = []
+    trainOutput = []
+    losses = torch.zeros(numepochs)
+
+    for epochi in range(numepochs):
+
+        ANNWine.train()
+
+        batchLoss = []
+        for X,y in train_loader:
+
+            yHat = ANNWine(X)
+            loss = loss_fun(yHat,y)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            batchLoss.append( loss.item() )
+        
+        trainOutput.append(ANNWine(traindataT).detach())
+        losses[epochi] = np.mean(batchLoss)
+            
+    ANNWine.eval()
+    with torch.no_grad():
+        for (X,) in test_loader:
+            yHat = ANNWine(X)
+            testOutput.append( yHat )
+
+    return losses
+
+winenet = createTheModel()[0]
+trainLoss = trainTheModel()
+
+# get the predictions for the missing data
+yHatTrain = winenet(traindataT)
+yHatTest  = winenet(testdataT)
+
+# plot some results
+fig,ax = plt.subplots(1,2,figsize=(17,6))
+
+ax[0].plot(trainLoss,label='Train loss')
+ax[0].set_title('Train/Test loss')
+ax[0].set_xlabel('Epoch')
+ax[0].set_ylabel('Loss')
+ax[0].legend()
+ax[0].grid()
+
+
+ax[1].plot(yHatTrain.detach(),labelsT,'ro')
+ax[1].plot(yHatTest.detach(),labelsT,'b^')
+ax[1].set_xlabel('Model-predicted sugar')
+ax[1].set_ylabel('True sugar')
+ax[1].set_title('Model predictions vs. observations')
+
+# correlations between predictions and outputs
+corrTrain = np.corrcoef(yHatTrain.detach().T,labelsT.T)[1,0]
+corrTest  = np.corrcoef(yHatTest.detach().T, labelsT.T)[1,0]
+ax[1].legend([ f'Train r={corrTrain:.3f}',f'Test r={corrTest:.3f}' ])
+
+plt.show()
